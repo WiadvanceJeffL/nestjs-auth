@@ -11,16 +11,16 @@ export class StoryDto {
   id: number;
 
   /** 主選單名稱（資料庫欄位：main_menu_name） */
-  @ApiProperty({ example: '小鎮失蹤手冊', description: '主選單名稱（原欄位 main_menu_name）' })
-  main_menu_name: string;
+  @ApiProperty({ example: '小鎮失蹤手冊', description: '主選單名稱（原欄位 main_menu_name）', nullable: true })
+  main_menu_name: string | null;
 
   /** 作者名稱 */
-  @ApiProperty({ example: '夏佩爾&烏奴奴', description: '作者名稱' })
-  author: string;
+  @ApiProperty({ example: '夏佩爾&烏奴奴', description: '作者名稱', nullable: true })
+  author: string | null;
 
   /** 主選單圖片檔名 */
-  @ApiProperty({ example: 'mainMenuImage-1709644166964.jpeg', description: '主選單圖片檔名' })
-  main_menu_image: string;
+  @ApiProperty({ example: 'mainMenuImage-1709644166964.jpeg', description: '主選單圖片檔名', nullable: true })
+  main_menu_image: string | null;
 }
 
 /**
