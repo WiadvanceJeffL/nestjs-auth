@@ -5,6 +5,8 @@ import { BookstoreItemDto } from './dto/get-bookstore-list-response.dto';
 import { GetMyEntitlementsResponseDto } from './dto/get-my-entitlements-response.dto';
 import { AdminEntitlementsQueryDto } from './dto/admin-entitlements-query.dto';
 import { AdminEntitlementsResponseDto } from './dto/admin-entitlements-response.dto';
+import { GetBookstoresQueryDto } from './dto/get-bookstores-query.dto';
+import { GetAdminBookstoresResponseDto } from './dto/get-admin-bookstores-response.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -232,5 +234,147 @@ export class BookstoreController {
     );
 
     return this.bookstoreService.getAdminEntitlements(query.userId, page, limit);
+  }
+
+  @Get('admin/bookstores')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '【後台管理員專用】取得書本商店清單（含所有狀態）',
+    description: `
+      管理員可透過此 API 查詢所有書本商店清單。
+      
+      **核心特性**：
+      - 需要 roleLevel >= 9 的管理員權限
+      - 包含所有狀態的書籍（包括已下架書籍），不進行上下架過濾
+      - 支援分頁查詢（page, limit）
+      - 按建立時間由新至舊排序
+      - 返回完整的書籍資訊與分頁統計
+      
+      **用途**：後台查看完整的書籍清單，管理所有書籍狀態
+    `,
+  })
+  @ApiQuery({
+    name: 'page',
+    description: '頁碼（可選，預設 1）',
+    type: Number,
+    example: 1,
+    required: false,
+  })
+  @ApiQuery({
+    name: 'limit',
+    description: '每頁筆數（可選，預設 20，最多 100）',
+    type: Number,
+    example: 20,
+    required: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '成功取得書本商店清單',
+    type: GetAdminBookstoresResponseDto,
+    example: {
+      data: [
+        {
+          id: 1,
+          storyListId: 1,
+          priceCoins: 100,
+          currency: 'COIN',
+          isActive: true,
+          soldCount: 42,
+          createdAt: '2025-12-18T15:28:17.000Z',
+          updatedAt: '2025-12-18T15:28:17.000Z',
+          story: {
+            id: 1,
+            main_menu_name: '小鎮失蹤手冊',
+            author: '夏佩爾&烏奴奴',
+            main_menu_image: 'mainMenuImage-1709644166964.jpeg',
+          },
+        },
+        {
+          id: 2,
+          storyListId: 2,
+          priceCoins: 150,
+          currency: 'COIN',
+          isActive: false,
+          soldCount: 0,
+          createdAt: '2025-12-17T10:15:00.000Z',
+          updatedAt: '2025-12-17T10:15:00.000Z',
+          story: {
+            id: 2,
+            main_menu_name: '冒險故事',
+            author: '張三',
+            main_menu_image: 'adventure-cover.jpeg',
+          },
+        },
+      ],
+      pagination: {
+        total: 50,
+        page: 1,
+        limit: 20,
+        totalPages: 3,
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'page 或 limit 驗證失敗 - 必須為正整數',
+    schema: {
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: {
+          oneOf: [
+            { type: 'string', example: 'page 必須是整數' },
+            { type: 'string', example: 'page 最小為 1' },
+            { type: 'string', example: 'limit 必須是整數' },
+            { type: 'string', example: 'limit 最小為 1' },
+            { type: 'string', example: 'limit 最多為 100' },
+          ],
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '未授權 - 憑證無效或未登入',
+    schema: {
+      properties: {
+        statusCode: { type: 'number', example: 401 },
+        message: { type: 'string', example: '未認證的使用者' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '無管理員權限 - roleLevel < 9',
+    schema: {
+      properties: {
+        statusCode: { type: 'number', example: 403 },
+        message: { type: 'string', example: '只有管理員可存取此資源' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: '伺服器錯誤 - 資料庫連線失敗',
+    schema: {
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'object', example: { success: false, message: '資料庫連線失敗' } },
+      },
+    },
+  })
+  async getAdminBookstores(
+    @Query(new ValidationPipe({ transform: true, transformOptions: { enableImplicitConversion: true } }))
+    query: GetBookstoresQueryDto,
+    @CurrentUser() user: any,
+  ): Promise<GetAdminBookstoresResponseDto> {
+    this.logger.log(
+      `🔵 [BookstoreController] getAdminBookstores() 被呼叫，管理員 ID: ${user?.userId}, page: ${query.page}, limit: ${query.limit}`,
+    );
+
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+
+    return this.bookstoreService.getAdminBookstores(page, limit) as any;
   }
 }
