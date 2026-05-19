@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { GrantRewardRequestDto } from './dto/grant-reward-request.dto';
 import { GrantRewardResponseDto } from './dto/grant-reward-response.dto';
 import { UpdateCoinLedgerRemarkDto } from './dto/update-coin-ledger-remark.dto';
+import { UpdateCoinPackNameDto } from './dto/update-coin-pack-name.dto';
 
 @Injectable()
 export class AdminService {
@@ -149,6 +150,87 @@ export class AdminService {
         `[UpdateRemarkLedger] 更新失敗 | admin=${adminId}, coinLedgerId=${coinLedgerId}, error=${error instanceof Error ? error.message : String(error)}`,
       );
       throw new BadRequestException(`更新備註失敗: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * 管理員修改金幣方案的名稱
+   *
+   * @param coinPackId 金幣方案 ID
+   * @param updateDto 更新請求（name 欄位）
+   * @param adminId 執行此操作的管理員 ID（用於審計日誌）
+   * @returns 更新後的金幣方案資訊
+   * @throws NotFoundException 如果指定的 CoinPack 不存在
+   * @throws ConflictException 如果新名稱已被其他方案使用（可選）
+   */
+  async updateCoinPackName(
+    coinPackId: number,
+    updateDto: UpdateCoinPackNameDto,
+    adminId: number,
+  ) {
+    const { name } = updateDto;
+
+    // ✅ Step 1: 檢查指定的 CoinPack 是否存在
+    const existingCoinPack = await this.prisma.coinPack.findUnique({
+      where: { id: coinPackId },
+    });
+
+    if (!existingCoinPack) {
+      this.logger.warn(
+        `[UpdateCoinPackName] 嘗試編輯不存在的 CoinPack: id=${coinPackId}, admin=${adminId}`,
+      );
+      throw new NotFoundException(`金幣方案 (ID: ${coinPackId}) 不存在`);
+    }
+
+    // ✅ Step 2: 檢查新名稱是否已被其他方案使用（可選的唯一性檢查）
+    // 如果系統規定方案名稱不能重複，可啟用此檢查
+    const duplicateName = await this.prisma.coinPack.findFirst({
+      where: {
+        name: name,
+        id: { not: coinPackId }, // 排除當前方案本身
+      },
+    });
+
+    if (duplicateName) {
+      this.logger.warn(
+        `[UpdateCoinPackName] 金幣方案名稱已存在: name=${name}, admin=${adminId}`,
+      );
+      throw new ConflictException(`金幣方案名稱「${name}」已被其他方案使用，請使用不同的名稱`);
+    }
+
+    // ✅ Step 3: 更新名稱欄位
+    try {
+      const updatedCoinPack = await this.prisma.coinPack.update({
+        where: { id: coinPackId },
+        data: {
+          name: name,
+        },
+      });
+
+      this.logger.log(
+        `[UpdateCoinPackName] 成功更新 | admin=${adminId}, coinPackId=${coinPackId}, oldName=${existingCoinPack.name}, newName=${name}`,
+      );
+
+      return {
+        success: true,
+        id: updatedCoinPack.id,
+        platform: updatedCoinPack.platform,
+        productId: updatedCoinPack.productId,
+        name: updatedCoinPack.name,
+        amount: updatedCoinPack.amount,
+        bonusAmount: updatedCoinPack.bonusAmount,
+        price: updatedCoinPack.price,
+        currency: updatedCoinPack.currency,
+        isActive: updatedCoinPack.isActive,
+        sortOrder: updatedCoinPack.sortOrder,
+        createdAt: updatedCoinPack.createdAt,
+        updatedAt: updatedCoinPack.updatedAt,
+      };
+    } catch (error) {
+      this.logger.error(
+        `[UpdateCoinPackName] 更新失敗 | admin=${adminId}, coinPackId=${coinPackId}, error=${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new BadRequestException(`金幣方案名稱更新失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
