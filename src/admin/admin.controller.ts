@@ -1,4 +1,4 @@
-import { Controller, Post, Patch, Body, Param, UseGuards, HttpCode, HttpStatus, Logger, ParseIntPipe } from '@nestjs/common';
+import { Controller, Post, Patch, Delete, Body, Param, UseGuards, HttpCode, HttpStatus, Logger, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { AdminGuard } from '../auth/admin.guard';
@@ -8,6 +8,7 @@ import { GrantRewardRequestDto } from './dto/grant-reward-request.dto';
 import { GrantRewardResponseDto } from './dto/grant-reward-response.dto';
 import { UpdateCoinLedgerRemarkDto } from './dto/update-coin-ledger-remark.dto';
 import { UpdateCoinPackNameDto } from './dto/update-coin-pack-name.dto';
+import { RemoveUserEntitlementResponseDto } from './dto/remove-user-entitlement-response.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -373,5 +374,94 @@ export class AdminController {
     );
 
     return this.adminService.updateCoinPackName(id, body, user.userId);
+  }
+
+  @Delete('users/:userId/entitlements/:bookId')
+  @UseGuards(JwtAuthGuard, AdminGuard) // ✅ 先 JWT 認證，再 Admin 授權
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '【管理員專用】移除使用者對已購買書籍的擁有權',
+    description: `
+      管理員可透過此 API 移除（或撤銷）指定使用者對某本已購買書籍的擁有權。
+      
+      **核心特性**：
+      - 需要 roleLevel >= 9 的管理員權限
+      - 執行硬刪除操作，此操作不可逆
+      - 檢查使用者是否擁有該書籍的權限紀錄，不存在返回 404 錯誤
+      - 所有操作均記錄於審計日誌
+      
+      **用途**：收回贈送的書籍、撤銷誤操作、權限管理等
+    `,
+  })
+  @ApiParam({
+    name: 'userId',
+    description: '使用者 ID',
+    type: Number,
+    example: 123,
+  })
+  @ApiParam({
+    name: 'bookId',
+    description: '書籍 ID（story_list_id）',
+    type: Number,
+    example: 456,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '擁有權移除成功',
+    type: RemoveUserEntitlementResponseDto,
+    example: {
+      success: true,
+      message: '已成功移除使用者 (ID: 123) 對書籍 (ID: 456) 的擁有權',
+      userId: 123,
+      bookId: 456,
+      removedAt: '2026-05-15T12:34:56.000Z',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '憑證無效或未登入',
+    example: {
+      statusCode: 401,
+      message: '未認證的使用者',
+      error: 'Unauthorized',
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '權限不足（非管理員，roleLevel < 9）',
+    example: {
+      statusCode: 403,
+      message: '只有管理員可存取此資源',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '擁有權紀錄不存在',
+    example: {
+      statusCode: 404,
+      message: '使用者 (ID: 123) 不擁有書籍 (ID: 456) 的權限紀錄',
+      error: 'Not Found',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: '伺服器內部錯誤',
+    example: {
+      statusCode: 500,
+      message: '移除擁有權失敗: [錯誤詳情]',
+      error: 'Internal Server Error',
+    },
+  })
+  async removeUserEntitlement(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Param('bookId', ParseIntPipe) bookId: number,
+    @CurrentUser() user: any,
+  ): Promise<RemoveUserEntitlementResponseDto> {
+    this.logger.log(
+      `[RemoveEntitlement] 管理員 ${user.userId} 發起移除擁有權操作 | targetUserId=${userId}, bookId=${bookId}`,
+    );
+
+    return this.adminService.removeUserEntitlement(userId, bookId, user.userId);
   }
 }
