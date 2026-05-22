@@ -233,4 +233,72 @@ export class AdminService {
       throw new BadRequestException(`金幣方案名稱更新失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+
+  /**
+   * 管理員移除指定使用者對某本已購買書籍的擁有權
+   * 此操作將硬刪除該擁有權記錄，不可逆。
+   *
+   * @param userId 使用者 ID
+   * @param bookId 書籍 ID（story_list_id）
+   * @param adminId 執行此操作的管理員 ID（用於審計日誌）
+   * @returns 移除結果
+   * @throws NotFoundException 如果擁有權紀錄不存在
+   */
+  async removeUserEntitlement(
+    userId: number,
+    bookId: number,
+    adminId: number,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    userId: number;
+    bookId: number;
+    removedAt: string;
+  }> {
+    // ✅ Step 1: 檢查該使用者是否確實擁有該書籍的權限紀錄
+    const entitlement = await this.prisma.entitlements.findFirst({
+      where: {
+        user_id: BigInt(userId),
+        story_list_id: bookId,
+      },
+    });
+
+    if (!entitlement) {
+      this.logger.warn(
+        `[RemoveEntitlement] 嘗試移除不存在的擁有權紀錄: userId=${userId}, bookId=${bookId}, admin=${adminId}`,
+      );
+      throw new NotFoundException(
+        `使用者 (ID: ${userId}) 不擁有書籍 (ID: ${bookId}) 的權限紀錄`,
+      );
+    }
+
+    // ✅ Step 2: 執行硬刪除操作
+    try {
+      await this.prisma.entitlements.deleteMany({
+        where: {
+          user_id: BigInt(userId),
+          story_list_id: bookId,
+        },
+      });
+
+      this.logger.log(
+        `[RemoveEntitlement] 成功移除 | admin=${adminId}, userId=${userId}, bookId=${bookId}`,
+      );
+
+      return {
+        success: true,
+        message: `已成功移除使用者 (ID: ${userId}) 對書籍 (ID: ${bookId}) 的擁有權`,
+        userId,
+        bookId,
+        removedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.error(
+        `[RemoveEntitlement] 刪除失敗 | admin=${adminId}, userId=${userId}, bookId=${bookId}, error=${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw new BadRequestException(
+        `移除擁有權失敗: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 }
