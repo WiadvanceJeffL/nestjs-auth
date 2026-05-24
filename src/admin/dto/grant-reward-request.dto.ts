@@ -12,12 +12,11 @@ export class GrantRewardRequestDto {
   targetUserId: number;
 
   @ApiProperty({
-    description: '發放的金幣額度（必須是大於 0 的整數）',
+    description: '調整金幣額度（可為正數或負數，正數為增加、負數為扣除，無最小值限制允許餘額為負）',
     example: 100,
     type: Number,
   })
   @IsInt({ message: 'amount 必須是整數' })
-  @Min(1, { message: 'amount 必須大於 0' })
   amount: number;
 
   @ApiProperty({

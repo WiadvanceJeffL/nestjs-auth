@@ -15,6 +15,34 @@ export class OrdersService {
     idemKey: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      // 集中處理購買前餘額檢查，避免不同購買路徑出現不一致的扣款規則。
+      const assertSufficientBalance = async (priceCoins: number) => {
+        // 使用 FOR UPDATE 鎖定使用者最新一筆流水，降低併發購買時重複使用同一份餘額的風險。
+        const balanceRows = await tx.$queryRaw<any[]>`
+          SELECT balance
+          FROM coin_ledger
+          WHERE user_id = ${userId}
+          ORDER BY id DESC
+          LIMIT 1
+          FOR UPDATE
+        `;
+
+        // 沒有任何流水時視為 0 元，因為使用者尚未取得可消費金幣。
+        const currentBalance = balanceRows.length
+          ? Number(balanceRows[0].balance)
+          : 0;
+
+        // 系統允許帳務餘額為負數，但購買書籍不允許扣款後低於 0。
+        if (currentBalance < priceCoins) {
+          throw new ForbiddenException('金幣不足');
+        }
+
+        return {
+          currentBalance,
+          newBalance: currentBalance - priceCoins,
+        };
+      };
+
       // 1️⃣ 檢查權益是否存在（業務規則）
       const existingEntitlement = await tx.$queryRaw<any[]>`
         SELECT id FROM entitlements
@@ -59,16 +87,8 @@ export class OrdersService {
         if (entitlementExists.length === 0 || coinLedgerExists.length === 0) {
           // 補齊第 6 步：扣幣流水（如果缺失）
           if (coinLedgerExists.length === 0) {
-            // 取得目前最新的餘額
-            const balanceRows = await tx.$queryRaw<any[]>`
-              SELECT balance
-              FROM coin_ledger
-              WHERE user_id = ${userId}
-              ORDER BY id DESC
-              LIMIT 1
-            `;
-            const currentBalance = balanceRows.length ? balanceRows[0].balance : 0;
-            const newBalance = currentBalance - price;
+            // 補扣款前仍需重新檢查餘額，避免在允許負數帳務後把購買扣成負數。
+            const { newBalance } = await assertSufficientBalance(price);
             const source = `ORDER:${orderId}`;
             
             await tx.$queryRaw`
@@ -114,21 +134,8 @@ export class OrdersService {
       }
       const price = items[0].priceCoins;
 
-      // 4️⃣ 取得目前餘額
-      const balanceRows = await tx.$queryRaw<any[]>`
-        SELECT balance
-        FROM coin_ledger
-        WHERE user_id = ${userId}
-        ORDER BY id DESC
-        LIMIT 1
-      `;
-      const balance = balanceRows.length ? balanceRows[0].balance : 0;
-
-      if (balance < price) {
-        throw new ForbiddenException('金幣不足');
-      }
-
-      const newBalance = balance - price;
+      // 4️⃣ 檢查目前餘額，確保購買扣款後不會低於 0。
+      const { newBalance } = await assertSufficientBalance(price);
 
       // 5️⃣ 建立訂單
       await tx.$queryRaw`
