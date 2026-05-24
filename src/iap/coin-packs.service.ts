@@ -2,6 +2,8 @@ import { Injectable, BadRequestException, InternalServerErrorException, Logger, 
 import { PrismaService } from '../prisma.service';
 import { CreateCoinPackRequestDto } from './dto/create-coin-pack-request.dto';
 import { UpdateCoinPackAdminRequestDto } from './dto/update-coin-pack-admin-request.dto';
+import { GetCoinPacksQueryDto } from './dto/get-coin-packs-query.dto';
+import { GetAdminCoinPacksResponseDto } from './dto/get-admin-coin-packs-response.dto';
 
 @Injectable()
 export class CoinPacksService {
@@ -37,6 +39,49 @@ export class CoinPacksService {
       //   platform: true,
       // }
     });
+  }
+
+  /**
+   * 後台取得完整金幣方案清單（不過濾上下架狀態）
+   */
+  async findAllForAdmin(
+    query: GetCoinPacksQueryDto,
+  ): Promise<GetAdminCoinPacksResponseDto> {
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const [total, coinPacks] = await this.prisma.$transaction([
+      this.prisma.coinPack.count(),
+      this.prisma.coinPack.findMany({
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return {
+      success: true,
+      data: coinPacks.map((pack) => ({
+        id: pack.id,
+        platform: pack.platform,
+        product_id: pack.productId,
+        name: pack.name,
+        amount: pack.amount,
+        bonus_amount: pack.bonusAmount,
+        price: Number(pack.price),
+        currency: pack.currency,
+        is_active: pack.isActive,
+        sort_order: pack.sortOrder,
+        created_at: pack.createdAt,
+        updated_at: pack.updatedAt,
+      })),
+      total,
+      page,
+      limit,
+    };
   }
 
   /**
