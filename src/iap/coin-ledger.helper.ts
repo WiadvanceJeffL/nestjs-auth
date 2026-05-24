@@ -33,9 +33,8 @@ export async function addCoinLedger(params: {
     const prevBalance = last.length > 0 ? last[0].balance : 0;
     const newBalance = prevBalance + changeAmount;
 
-    if (newBalance < 0) {
-      throw new Error('金幣不足');
-    }
+    // ✅ 允許負餘額用於記錄欠款或異常狀態
+    // 不再限制 newBalance < 0，由業務邏輯（如購買時）決定是否允許
 
     // 2️⃣ 寫入帳本
     await tx.$executeRaw`

@@ -22,25 +22,26 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, AdminGuard) // ✅ 先 JWT 認證，再 Admin 授權
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '【管理員專用】手動發放免費金幣獎勵',
+    summary: '【管理員專用】調整使用者金幣（增加或扣除）',
     description: `
-      管理員可透過此 API 手動發放免費金幣給指定使用者。
+      管理員可透過此 API 調整使用者的金幣餘額，支持增加或扣除金幣。
       
       **核心特性**：
       - 需要 roleLevel >= 9 的管理員權限
-      - 略過「單一活動限領一次」的限制
-      - 使用 Database Transaction 確保金幣增加與發放紀錄完全同步（ACID 特性）
-      - 所有發放紀錄寫入 CoinLedger 表（type='ADMIN_GRANT'，source=reason）
+      - amount 可為正數（增加）或負數（扣除），無最小值限制
+      - 允許餘額為負數（用於記錄欠款或異常狀態）
+      - 使用 Database Transaction 確保調整與紀錄完全同步（ACID 特性）
+      - 所有調整紀錄寫入 CoinLedger 表（type='ADMIN_GRANT'，source=reason）
       - 檢查目標使用者是否存在，不存在返回 404 錯誤
       
-      **用途**：禮物卡兌換、活動補償、系統故障補償、測試等管理員特殊操作
+      **用途**：禮物卡兌換、活動補償、系統故障補償、違規扣款、異常狀態補正等
     `,
   })
   @ApiBody({
     type: GrantRewardRequestDto,
     examples: {
       example1: {
-        summary: '禮物卡兌換範例',
+        summary: '增加金幣範例',
         value: {
           targetUserId: 123,
           amount: 100,
@@ -48,11 +49,19 @@ export class AdminController {
         },
       },
       example2: {
-        summary: '活動補償範例',
+        summary: '扣除金幣範例',
         value: {
           targetUserId: 456,
-          amount: 50,
-          reason: '系統故障補償 - 2026-05-15 伺服器維護期間',
+          amount: -50,
+          reason: '違規扣款',
+        },
+      },
+      example3: {
+        summary: '記錄欠款（負餘額）',
+        value: {
+          targetUserId: 789,
+          amount: -500,
+          reason: '帳務調整',
         },
       },
     },
@@ -60,7 +69,7 @@ export class AdminController {
   @ApiResponse({
     status: 200,
     type: GrantRewardResponseDto,
-    description: '金幣發放成功',
+    description: '金幣調整成功',
     example: {
       success: true,
       targetUserId: 123,
@@ -72,10 +81,10 @@ export class AdminController {
   })
   @ApiResponse({
     status: 400,
-    description: '請求參數驗證失敗（targetUserId 或 amount 無效）',
+    description: '請求參數驗證失敗（targetUserId 無效）',
     example: {
       statusCode: 400,
-      message: ['targetUserId 必須是整數', 'amount 必須大於 0'],
+      message: ['targetUserId 必須是整數'],
       error: 'Bad Request',
     },
   })

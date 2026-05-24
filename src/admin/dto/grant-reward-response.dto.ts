@@ -16,28 +16,28 @@ export class GrantRewardResponseDto {
   targetUserId: number;
 
   @ApiProperty({
-    description: '發放的金幣額度',
+    description: '調整的金幣額度（正數為增加、負數為扣除）',
     example: 100,
     type: Number,
   })
   amount: number;
 
   @ApiProperty({
-    description: '發放後使用者的新金幣餘額',
+    description: '調整後使用者的新金幣餘額（可為負數）',
     example: 250,
     type: Number,
   })
   newBalance: number;
 
   @ApiProperty({
-    description: '管理員填寫的發放原因',
+    description: '管理員填寫的調整原因',
     example: '禮物卡兌換',
     type: String,
   })
   reason: string;
 
   @ApiProperty({
-    description: '發放時間戳記',
+    description: '調整時間戳記',
     example: '2026-05-15T12:34:56.000Z',
     type: String,
   })
