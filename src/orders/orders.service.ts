@@ -51,7 +51,7 @@ export class OrdersService {
           SELECT id FROM coin_ledger
           WHERE user_id = ${userId}
             AND type = 'BOOK_PURCHASE'
-          ORDER BY id DESC
+            AND source = ${`ORDER:${orderId}`}
           LIMIT 1
         `;
         
@@ -148,11 +148,12 @@ export class OrdersService {
       }
 
       // 6️⃣ 扣幣流水
+      const source = `ORDER:${orderId}`;
       await tx.$queryRaw`
         INSERT INTO coin_ledger
-          (user_id, change_amount, balance, type, created_at)
+          (user_id, change_amount, balance, type, source, created_at)
         VALUES
-          (${userId}, ${-price}, ${newBalance}, 'BOOK_PURCHASE', NOW())
+          (${userId}, ${-price}, ${newBalance}, 'BOOK_PURCHASE', ${source}, NOW())
       `;
 
       // 7️⃣ 建立權益
