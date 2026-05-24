@@ -4,6 +4,11 @@ import { GrantRewardRequestDto } from './dto/grant-reward-request.dto';
 import { GrantRewardResponseDto } from './dto/grant-reward-response.dto';
 import { UpdateCoinLedgerRemarkDto } from './dto/update-coin-ledger-remark.dto';
 import { UpdateCoinPackNameDto } from './dto/update-coin-pack-name.dto';
+import {
+  IapReceiptStatus,
+  UpdateIapReceiptStatusDto,
+  UpdateIapReceiptStatusResponseDto,
+} from './dto/update-iap-receipt-status.dto';
 
 @Injectable()
 export class AdminService {
@@ -90,6 +95,82 @@ export class AdminService {
       );
       throw new BadRequestException(`金幣發放失敗: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * 管理員將成功的 IAP 收據標記為退款
+   *
+   * @param iapReceiptId IAP 收據 ID
+   * @param updateDto 更新請求（status 僅允許 REFUNDED）
+   * @param adminId 執行此操作的管理員 ID（用於審計日誌）
+   * @returns 更新後的 IAP 收據資訊
+   * @throws NotFoundException 如果指定的 IAP 收據不存在
+   * @throws BadRequestException 如果收據目前不是 SUCCESS 狀態
+   */
+  async updateIapReceiptStatus(
+    iapReceiptId: number,
+    updateDto: UpdateIapReceiptStatusDto,
+    adminId: number,
+  ): Promise<UpdateIapReceiptStatusResponseDto> {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const receipt = await tx.iapReceipt.findUnique({
+        where: { id: iapReceiptId },
+      });
+
+      if (!receipt) {
+        this.logger.warn(
+          `[UpdateIapReceiptStatus] 嘗試更新不存在的 IAP 收據: id=${iapReceiptId}, admin=${adminId}`,
+        );
+        throw new NotFoundException(`IAP 收據 (ID: ${iapReceiptId}) 不存在`);
+      }
+
+      if (receipt.status !== 'SUCCESS') {
+        this.logger.warn(
+          `[UpdateIapReceiptStatus] 收據狀態不可退款 | id=${iapReceiptId}, currentStatus=${receipt.status}, admin=${adminId}`,
+        );
+        throw new BadRequestException('僅能針對成功交易進行退款標記');
+      }
+
+      const updateResult = await tx.iapReceipt.updateMany({
+        where: {
+          id: iapReceiptId,
+          status: 'SUCCESS',
+        },
+        data: {
+          status: updateDto.status,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[UpdateIapReceiptStatus] 收據狀態已被異動，無法退款 | id=${iapReceiptId}, admin=${adminId}`,
+        );
+        throw new BadRequestException('僅能針對成功交易進行退款標記');
+      }
+
+      const updatedReceipt = await tx.iapReceipt.findUniqueOrThrow({
+        where: { id: iapReceiptId },
+      });
+
+      this.logger.log(
+        `[UpdateIapReceiptStatus] 成功更新 | admin=${adminId}, iapReceiptId=${iapReceiptId}, transactionId=${updatedReceipt.transactionId}, status=${updatedReceipt.status}`,
+      );
+
+      return updatedReceipt;
+    });
+
+    return {
+      success: true,
+      id: result.id,
+      userId: result.userId,
+      platform: result.platform,
+      productId: result.productId,
+      transactionId: result.transactionId,
+      coins: result.coins,
+      status: result.status as IapReceiptStatus,
+      createdAt: result.createdAt,
+      markedAt: new Date().toISOString(),
+    };
   }
 
   /**
