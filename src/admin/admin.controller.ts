@@ -9,6 +9,12 @@ import { GrantRewardResponseDto } from './dto/grant-reward-response.dto';
 import { UpdateCoinLedgerRemarkDto } from './dto/update-coin-ledger-remark.dto';
 import { UpdateCoinPackNameDto } from './dto/update-coin-pack-name.dto';
 import { RemoveUserEntitlementResponseDto } from './dto/remove-user-entitlement-response.dto';
+import {
+  IapReceiptStatus,
+  UpdateIapReceiptStatusDto,
+  UpdateIapReceiptStatusParamDto,
+  UpdateIapReceiptStatusResponseDto,
+} from './dto/update-iap-receipt-status.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -133,6 +139,103 @@ export class AdminController {
     );
 
     return this.adminService.grantRewardToUser(body, user.userId);
+  }
+
+  @Patch('iap-receipts/:id/status')
+  @UseGuards(JwtAuthGuard, AdminGuard) // ✅ 先 JWT 認證，再 Admin 授權
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '【管理員專用】將 IAP 收據狀態標記為退款',
+    description: `
+      管理員可透過此 API 將指定 IAP 收據從 SUCCESS 標記為 REFUNDED。
+      
+      **核心特性**：
+      - 需要 roleLevel >= 9 的管理員權限
+      - 僅允許將 SUCCESS 交易標記為 REFUNDED
+      - 若收據不存在回傳 404
+      - 若收據不是 SUCCESS 狀態，回傳 400，避免重複退款或錯誤狀態轉換
+    `,
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'IAP 收據 ID（iap_receipts.id）',
+    type: Number,
+    example: 123,
+  })
+  @ApiBody({
+    type: UpdateIapReceiptStatusDto,
+    examples: {
+      refunded: {
+        summary: '標記退款',
+        value: {
+          status: IapReceiptStatus.REFUNDED,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'IAP 收據狀態更新成功',
+    type: UpdateIapReceiptStatusResponseDto,
+    example: {
+      success: true,
+      id: 123,
+      userId: 456,
+      platform: 'GOOGLE',
+      productId: 'coins_100',
+      transactionId: 'GPA.3218-2019-1234567890',
+      coins: 110,
+      status: 'REFUNDED',
+      createdAt: '2026-05-15T10:30:00.000Z',
+      markedAt: '2026-05-25T12:34:56.000Z',
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '請求參數驗證失敗，或收據目前狀態不可退款',
+    example: {
+      statusCode: 400,
+      message: '僅能針對成功交易進行退款標記',
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '憑證無效或未登入',
+    example: {
+      statusCode: 401,
+      message: '未認證的使用者',
+      error: 'Unauthorized',
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '權限不足（非管理員，roleLevel < 9）',
+    example: {
+      statusCode: 403,
+      message: '只有管理員可存取此資源',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'IAP 收據不存在',
+    example: {
+      statusCode: 404,
+      message: 'IAP 收據 (ID: 999999) 不存在',
+      error: 'Not Found',
+    },
+  })
+  async updateIapReceiptStatus(
+    @Param() params: UpdateIapReceiptStatusParamDto,
+    @Body() body: UpdateIapReceiptStatusDto,
+    @CurrentUser() user: any,
+  ): Promise<UpdateIapReceiptStatusResponseDto> {
+    this.logger.log(
+      `[UpdateIapReceiptStatus] 管理員 ${user.userId} 發起退款標記操作 | iapReceiptId=${params.id}, status=${body.status}`,
+    );
+
+    return this.adminService.updateIapReceiptStatus(params.id, body, user.userId);
   }
 
   @Patch('coin-ledger/:id/remark')
