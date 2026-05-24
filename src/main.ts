@@ -11,7 +11,7 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle('Auth API')
     .setDescription('烏努努小說平台後端 API 文件')
-    .setVersion('1.9.12')
+    .setVersion('1.9.13')
     .addBearerAuth()
     .build();
 

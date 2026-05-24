@@ -23,9 +23,12 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { GetCoinPacksRequestDto } from './dto/get-coin-packs-request.dto';
 import { GetCoinPacksResponseDto } from './dto/get-coin-packs-response.dto';
+import { GetCoinPacksQueryDto } from './dto/get-coin-packs-query.dto';
+import { GetAdminCoinPacksResponseDto } from './dto/get-admin-coin-packs-response.dto';
 import { CreateCoinPackRequestDto } from './dto/create-coin-pack-request.dto';
 import { CreateCoinPackResponseDto } from './dto/create-coin-pack-response.dto';
 import { UpdateCoinPackAdminRequestDto } from './dto/update-coin-pack-admin-request.dto';
@@ -35,11 +38,96 @@ import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('IAP - Coin Packs')
-@Controller('coin-packs')
+@Controller()
 export class CoinPacksController {
   constructor(private readonly coinPacksService: CoinPacksService) {}
 
-  @Get()
+  @Get('admin/coin-packs')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '【後台】取得完整金幣方案清單',
+    description: `
+      管理員可透過此 API 取得完整金幣方案商店清單。
+
+      **核心特性**：
+      - 需要 roleLevel >= 9 的管理員權限
+      - 支援 page / limit 分頁
+      - 預設依建立時間由新到舊排序
+      - 不過濾 is_active，包含啟用與停用方案
+    `,
+  })
+  @ApiQuery({
+    name: 'page',
+    description: '頁碼（可選，預設 1）',
+    type: Number,
+    example: 1,
+    required: false,
+  })
+  @ApiQuery({
+    name: 'limit',
+    description: '每頁筆數（可選，預設 20）',
+    type: Number,
+    example: 20,
+    required: false,
+  })
+  @ApiOkResponse({
+    description: '成功取得完整金幣方案清單',
+    type: GetAdminCoinPacksResponseDto,
+    example: {
+      success: true,
+      data: [
+        {
+          id: 2,
+          platform: 'APPLE',
+          product_id: 'com.xstory.coins_500',
+          name: '500 金幣',
+          amount: 500,
+          bonus_amount: 50,
+          price: 499,
+          currency: 'TWD',
+          is_active: false,
+          sort_order: 2,
+          created_at: '2026-05-15T10:30:00.000Z',
+          updated_at: '2026-05-15T12:34:56.000Z',
+        },
+        {
+          id: 1,
+          platform: 'GOOGLE',
+          product_id: 'coins_100',
+          name: '100 金幣',
+          amount: 100,
+          bonus_amount: 10,
+          price: 99,
+          currency: 'TWD',
+          is_active: true,
+          sort_order: 1,
+          created_at: '2026-05-14T10:30:00.000Z',
+          updated_at: '2026-05-14T10:30:00.000Z',
+        },
+      ],
+      total: 2,
+      page: 1,
+      limit: 20,
+    },
+  })
+  @ApiForbiddenResponse({
+    description: '權限不足 (需要 Admin 權限，roleLevel >= 9)',
+    schema: {
+      example: {
+        message: '只有管理員可存取此資源',
+        error: 'Forbidden',
+        statusCode: 403,
+      },
+    },
+  })
+  async findAllForAdmin(
+    @Query() query: GetCoinPacksQueryDto,
+  ): Promise<GetAdminCoinPacksResponseDto> {
+    return this.coinPacksService.findAllForAdmin(query);
+  }
+
+  @Get('coin-packs')
   @ApiOperation({ 
     summary: '取得金幣商品清單', 
     description: '取得目前資料庫中「上架中」且依序排列的金幣商品。' 
@@ -90,7 +178,7 @@ export class CoinPacksController {
    * @description 僅限管理員使用，用於建立新的金幣儲值包商品
    * @requires JWT Token + Admin 權限 (roleLevel >= 9)
    */
-  @Post()
+  @Post('coin-packs')
   @HttpCode(201)
   @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiBearerAuth()
@@ -173,7 +261,7 @@ export class CoinPacksController {
    * @description 管理員可透過此端點上下架指定的金幣商品
    * @requires JWT Token + Admin 權限 (roleLevel >= 9)
    */
-  @Patch(':id')
+  @Patch('coin-packs/:id')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, AdminGuard)
   @ApiBearerAuth()
