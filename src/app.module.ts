@@ -9,6 +9,7 @@ import { BookstoreModule } from './bookstore/bookstore.module';
 import { OrdersModule } from './orders/orders.module';
 import { ActivitiesModule } from './activities/activities.module';
 import { AdminModule } from './admin/admin.module';
+import { BooksModule } from './books/books.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { AdminModule } from './admin/admin.module';
     OrdersModule,
     ActivitiesModule,
     AdminModule,
+    BooksModule,
   ],
   providers: [PrismaService],
 })
