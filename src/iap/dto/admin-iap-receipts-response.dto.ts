@@ -1,4 +1,5 @@
 export class AdminIapReceiptItemDto {
+  id: number; // iap_receipts.id
   receiptId: string; // transaction_id
   userId: number;
   username: string;

@@ -214,6 +214,7 @@ export class IapQueryService {
         const bonus = r.pack_bonus !== null ? r.pack_bonus : 0;
 
         return {
+          id: r.id,
           receiptId: r.transaction_id,
           userId: r.user_id,
           username: userProfile?.name || '未知用戶',

@@ -72,6 +72,7 @@ export class IapQueryController {
     example: {
       items: [
         {
+          id: 1,
           receiptId: 'GPA.3218-2019-1234567890',
           userId: 12,
           username: 'John Doe',
@@ -88,6 +89,7 @@ export class IapQueryController {
           createdAt: '2026-02-27T10:30:00.000Z',
         },
         {
+          id: 2,
           receiptId: '17000123456789012',
           userId: 12,
           username: 'John Doe',
