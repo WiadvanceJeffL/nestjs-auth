@@ -1,12 +1,14 @@
-import { Controller, Get, Query, UseGuards, Logger, BadRequestException, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Logger, Param, ParseIntPipe, Patch, Post, Query, UseGuards, ValidationPipe } from '@nestjs/common';
 import { BookstoreService } from './bookstore.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiUnauthorizedResponse, ApiForbiddenResponse, ApiInternalServerErrorResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiForbiddenResponse, ApiInternalServerErrorResponse, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { BookstoreItemDto } from './dto/get-bookstore-list-response.dto';
 import { GetMyEntitlementsResponseDto } from './dto/get-my-entitlements-response.dto';
 import { AdminEntitlementsQueryDto } from './dto/admin-entitlements-query.dto';
 import { AdminEntitlementsResponseDto } from './dto/admin-entitlements-response.dto';
 import { GetBookstoresQueryDto } from './dto/get-bookstores-query.dto';
 import { GetAdminBookstoresResponseDto } from './dto/get-admin-bookstores-response.dto';
+import { CreateBookstoreDto } from './dto/create-bookstore.dto';
+import { UpdateBookstoreDto } from './dto/update-bookstore.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -17,6 +19,381 @@ export class BookstoreController {
   private readonly logger = new Logger(BookstoreController.name);
 
   constructor(private readonly bookstoreService: BookstoreService) {}
+
+  @Post('admin/bookstores')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '【後台管理員專用】建立書本商店上架屬性',
+    description: `
+      管理員可透過此 API 為指定書籍建立書本商店設定。
+
+      **核心特性**：
+      - 需要 JWT Token 且 roleLevel >= 9
+      - 建立前會確認 bookId 對應的書籍存在
+      - 每本書僅允許一筆商店設定，重複建立會回傳 409
+      - currency、isActive、soldCount 未傳入時會套用預設值
+    `,
+  })
+  @ApiBody({
+    type: CreateBookstoreDto,
+    examples: {
+      activeBook: {
+        summary: '建立上架書籍',
+        value: {
+          bookId: 1,
+          priceCoins: 100,
+          currency: 'COIN',
+          isActive: true,
+          soldCount: 0,
+        },
+      },
+      withDefaults: {
+        summary: '使用選填欄位預設值',
+        value: {
+          bookId: 2,
+          priceCoins: 150,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: '書本商店設定建立成功',
+    type: BookstoreItemDto,
+    example: {
+      id: 1,
+      storyListId: 1,
+      priceCoins: 100,
+      currency: 'COIN',
+      isActive: true,
+      soldCount: 0,
+      createdAt: '2026-06-06T10:30:00.000Z',
+      updatedAt: '2026-06-06T10:30:00.000Z',
+      story: {
+        id: 1,
+        main_menu_name: '小鎮失蹤手冊',
+        author: '夏佩爾&烏奴奴',
+        main_menu_image: 'mainMenuImage-1709644166964.jpeg',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '請求參數驗證失敗',
+    example: {
+      statusCode: 400,
+      message: [
+        'bookId 必須大於 0',
+        'priceCoins 必須大於等於 0',
+        'currency 只能為 COIN',
+        'isActive 必須是布林值',
+        'soldCount 必須是整數',
+      ],
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '憑證無效或未登入',
+    example: {
+      statusCode: 401,
+      message: 'Unauthorized',
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '權限不足（非管理員，roleLevel < 9）',
+    example: {
+      statusCode: 403,
+      message: '只有管理員可存取此資源',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '指定書籍不存在',
+    example: {
+      statusCode: 404,
+      message: '書籍 (ID: 999999) 不存在',
+      error: 'Not Found',
+    },
+  })
+  @ApiResponse({
+    status: 409,
+    description: '該書籍已存在商店設定',
+    example: {
+      statusCode: 409,
+      message: '書籍 (ID: 1) 已存在商店設定',
+      error: 'Conflict',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: '伺服器錯誤 - 資料庫連線失敗',
+    example: {
+      statusCode: 500,
+      message: {
+        success: false,
+        message: '資料庫連線失敗',
+      },
+      error: 'Internal Server Error',
+    },
+  })
+  async createAdminBookstore(
+    @Body(new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }))
+    body: CreateBookstoreDto,
+    @CurrentUser() user: any,
+  ): Promise<BookstoreItemDto> {
+    this.logger.log(
+      `🔵 [BookstoreController] createAdminBookstore() 被呼叫，管理員 ID: ${user?.userId}, bookId: ${body.bookId}`,
+    );
+
+    return this.bookstoreService.createAdminBookstore(body);
+  }
+
+  @Patch('admin/bookstores/:id')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '【後台管理員專用】部分更新書本商店上架屬性',
+    description: `
+      管理員可透過此 API 編輯指定書本商店設定。
+
+      **核心特性**：
+      - 需要 JWT Token 且 roleLevel >= 9
+      - 使用 book_store_items.id 作為 Primary Key
+      - 只更新 request body 有傳入的欄位
+      - 更新前會確認指定商店設定存在，不存在回傳 404
+    `,
+  })
+  @ApiParam({
+    name: 'id',
+    description: '書本商店設定 ID（book_store_items.id）',
+    type: Number,
+    example: 1,
+  })
+  @ApiBody({
+    type: UpdateBookstoreDto,
+    examples: {
+      updatePrice: {
+        summary: '只更新金幣價格',
+        value: {
+          priceCoins: 120,
+        },
+      },
+      updateStatus: {
+        summary: '只更新上架狀態',
+        value: {
+          isActive: false,
+        },
+      },
+      updateMultipleFields: {
+        summary: '同時更新價格、貨幣與上架狀態',
+        value: {
+          priceCoins: 150,
+          currency: 'COIN',
+          isActive: true,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: '書本商店設定更新成功',
+    type: BookstoreItemDto,
+    example: {
+      id: 1,
+      storyListId: 1,
+      priceCoins: 120,
+      currency: 'COIN',
+      isActive: false,
+      soldCount: 42,
+      createdAt: '2026-06-06T10:30:00.000Z',
+      updatedAt: '2026-06-06T11:30:00.000Z',
+      story: {
+        id: 1,
+        main_menu_name: '小鎮失蹤手冊',
+        author: '夏佩爾&烏奴奴',
+        main_menu_image: 'mainMenuImage-1709644166964.jpeg',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '請求參數驗證失敗',
+    example: {
+      statusCode: 400,
+      message: [
+        'priceCoins 必須大於等於 0',
+        'currency 只能為 COIN',
+        'isActive 必須是布林值',
+      ],
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '憑證無效或未登入',
+    example: {
+      statusCode: 401,
+      message: 'Unauthorized',
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '權限不足（非管理員，roleLevel < 9）',
+    example: {
+      statusCode: 403,
+      message: '只有管理員可存取此資源',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '指定書本商店設定不存在',
+    example: {
+      statusCode: 404,
+      message: '書本商店設定 (ID: 999999) 不存在',
+      error: 'Not Found',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: '伺服器錯誤 - 資料庫連線失敗',
+    example: {
+      statusCode: 500,
+      message: {
+        success: false,
+        message: '資料庫連線失敗',
+      },
+      error: 'Internal Server Error',
+    },
+  })
+  async updateAdminBookstore(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }))
+    body: UpdateBookstoreDto,
+    @CurrentUser() user: any,
+  ): Promise<BookstoreItemDto> {
+    this.logger.log(
+      `🔵 [BookstoreController] updateAdminBookstore() 被呼叫，管理員 ID: ${user?.userId}, bookstoreId: ${id}`,
+    );
+
+    return this.bookstoreService.updateAdminBookstore(id, body);
+  }
+
+  @Delete('admin/bookstores/:id')
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '【後台管理員專用】刪除書本商店屬性',
+    description: `
+      管理員可透過此 API 刪除指定書籍的商店屬性，等同於將商品從商店移除。
+
+      **核心特性**：
+      - 需要 JWT Token 且 roleLevel >= 9
+      - 使用 book_store_items.id 作為 Primary Key
+      - 僅刪除 book_store_items 商店屬性紀錄
+      - 不會刪除 StoryLists 書籍主表紀錄
+      - 刪除前會確認指定商店設定存在，不存在回傳 404
+    `,
+  })
+  @ApiParam({
+    name: 'id',
+    description: '書本商店設定 ID（book_store_items.id）',
+    type: Number,
+    example: 1,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '書本商店設定刪除成功，書籍主表紀錄保留',
+    example: {
+      success: true,
+      message: '書本商店設定已刪除，書籍主表紀錄保留',
+      deletedItem: {
+        id: 1,
+        storyListId: 1,
+        priceCoins: 120,
+        currency: 'COIN',
+        isActive: false,
+        soldCount: 42,
+        createdAt: '2026-06-06T10:30:00.000Z',
+        updatedAt: '2026-06-06T11:30:00.000Z',
+        story: {
+          id: 1,
+          main_menu_name: '小鎮失蹤手冊',
+          author: '夏佩爾&烏奴奴',
+          main_menu_image: 'mainMenuImage-1709644166964.jpeg',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'id 參數驗證失敗',
+    example: {
+      statusCode: 400,
+      message: 'Validation failed (numeric string is expected)',
+      error: 'Bad Request',
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '憑證無效或未登入',
+    example: {
+      statusCode: 401,
+      message: 'Unauthorized',
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: '權限不足（非管理員，roleLevel < 9）',
+    example: {
+      statusCode: 403,
+      message: '只有管理員可存取此資源',
+      error: 'Forbidden',
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: '指定書本商店設定不存在',
+    example: {
+      statusCode: 404,
+      message: '書本商店設定 (ID: 999999) 不存在',
+      error: 'Not Found',
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: '伺服器錯誤 - 資料庫連線失敗',
+    example: {
+      statusCode: 500,
+      message: {
+        success: false,
+        message: '資料庫連線失敗',
+      },
+      error: 'Internal Server Error',
+    },
+  })
+  async deleteAdminBookstore(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(
+      `🔵 [BookstoreController] deleteAdminBookstore() 被呼叫，管理員 ID: ${user?.userId}, bookstoreId: ${id}`,
+    );
+
+    return this.bookstoreService.deleteAdminBookstore(id);
+  }
 
   @Get('bookstorelist')
   @ApiOperation({ summary: '取得書本商店清單' })
