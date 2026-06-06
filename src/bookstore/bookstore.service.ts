@@ -1,9 +1,206 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
+import { CreateBookstoreDto } from './dto/create-bookstore.dto';
+import { UpdateBookstoreDto } from './dto/update-bookstore.dto';
 
 @Injectable()
 export class BookstoreService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * 【後台管理員專用】建立書本商店項目
+   * - 建立前確認書籍存在，避免產生孤兒資料
+   * - 每本書只能建立一筆商店屬性，重複建立回傳 409
+   */
+  async createAdminBookstore(createBookstoreDto: CreateBookstoreDto) {
+    const {
+      bookId,
+      priceCoins,
+      currency = 'COIN',
+      isActive = true,
+      soldCount = 0,
+    } = createBookstoreDto;
+
+    const book = await this.prisma.storyLists.findUnique({
+      where: { id: bookId },
+      select: {
+        id: true,
+        main_menu_name: true,
+        author: true,
+        main_menu_image: true,
+      },
+    });
+
+    if (!book) {
+      throw new NotFoundException(`書籍 (ID: ${bookId}) 不存在`);
+    }
+
+    const existingItem = await this.prisma.bookStoreItem.findUnique({
+      where: { storyListId: bookId },
+      select: { id: true },
+    });
+
+    if (existingItem) {
+      throw new ConflictException(`書籍 (ID: ${bookId}) 已存在商店設定`);
+    }
+
+    try {
+      return await this.prisma.bookStoreItem.create({
+        data: {
+          storyListId: bookId,
+          priceCoins,
+          currency,
+          isActive,
+          soldCount,
+        },
+        include: {
+          story: {
+            select: {
+              id: true,
+              main_menu_name: true,
+              author: true,
+              main_menu_image: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(`書籍 (ID: ${bookId}) 已存在商店設定`);
+      }
+
+      throw new InternalServerErrorException({
+        success: false,
+        message: '資料庫連線失敗',
+      });
+    }
+  }
+
+  /**
+   * 【後台管理員專用】部分更新書本商店項目
+   * - 更新前確認商店項目存在
+   * - 只更新 request body 有帶入且不是 null 的欄位
+   */
+  async updateAdminBookstore(id: number, updateBookstoreDto: UpdateBookstoreDto) {
+    const existingItem = await this.prisma.bookStoreItem.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!existingItem) {
+      throw new NotFoundException(`書本商店設定 (ID: ${id}) 不存在`);
+    }
+
+    const data: Prisma.BookStoreItemUpdateInput = {};
+
+    if (updateBookstoreDto.priceCoins !== undefined && updateBookstoreDto.priceCoins !== null) {
+      data.priceCoins = updateBookstoreDto.priceCoins;
+    }
+
+    if (updateBookstoreDto.currency !== undefined && updateBookstoreDto.currency !== null) {
+      data.currency = updateBookstoreDto.currency;
+    }
+
+    if (updateBookstoreDto.isActive !== undefined && updateBookstoreDto.isActive !== null) {
+      data.isActive = updateBookstoreDto.isActive;
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('至少需提供一個可更新欄位');
+    }
+
+    try {
+      return await this.prisma.bookStoreItem.update({
+        where: { id },
+        data,
+        include: {
+          story: {
+            select: {
+              id: true,
+              main_menu_name: true,
+              author: true,
+              main_menu_image: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(`書本商店設定 (ID: ${id}) 不存在`);
+      }
+
+      throw new InternalServerErrorException({
+        success: false,
+        message: '資料庫連線失敗',
+      });
+    }
+  }
+
+  /**
+   * 【後台管理員專用】刪除書本商店項目
+   * - 僅刪除 book_store_items 的商店屬性紀錄
+   * - 不會刪除 StoryLists 書籍主表紀錄
+   */
+  async deleteAdminBookstore(id: number) {
+    const existingItem = await this.prisma.bookStoreItem.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        storyListId: true,
+      },
+    });
+
+    if (!existingItem) {
+      throw new NotFoundException(`書本商店設定 (ID: ${id}) 不存在`);
+    }
+
+    try {
+      const deletedItem = await this.prisma.bookStoreItem.delete({
+        where: { id },
+        include: {
+          story: {
+            select: {
+              id: true,
+              main_menu_name: true,
+              author: true,
+              main_menu_image: true,
+            },
+          },
+        },
+      });
+
+      return {
+        success: true,
+        message: '書本商店設定已刪除，書籍主表紀錄保留',
+        deletedItem,
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(`書本商店設定 (ID: ${id}) 不存在`);
+      }
+
+      throw new InternalServerErrorException({
+        success: false,
+        message: '資料庫連線失敗',
+      });
+    }
+  }
 
   async getBookStoreList() {
     try {
