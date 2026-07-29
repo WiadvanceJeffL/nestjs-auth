@@ -1,6 +1,9 @@
 {
   "name": "nestjs-auth",
   "version": "1.0.0",
+  "engines": {
+    "node": "22.13.1"
+  },
   "main": "index.js",
   "scripts": {
     "start": "nest start",

@@ -27,10 +27,10 @@ export class BookBasicInfoDto {
   @ApiProperty({ example: 1, description: '故事 ID' })
   id!: number;
 
-  /** 書籍名稱 */
+  /** 書籍標題 */
   @ApiProperty({
     example: '小鎮失蹤手冊',
-    description: '書籍名稱',
+    description: '書籍標題（來源欄位：main_menu_title）',
   })
   title!: string;
 
