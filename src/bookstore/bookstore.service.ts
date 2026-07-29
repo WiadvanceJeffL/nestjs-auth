@@ -384,7 +384,7 @@ export class BookstoreService {
           },
           select: {
             id: true,
-            main_menu_name: true,
+            main_menu_title: true,
             author: true,
             main_menu_image: true,
           },
@@ -400,7 +400,7 @@ export class BookstoreService {
         return {
           book: {
             id: entitled.story_list_id,
-            title: story?.main_menu_name ?? 'Unknown Book',
+            title: story?.main_menu_title ?? 'Unknown Book',
             author: story?.author ?? 'Unknown Author',
             coverImage: story?.main_menu_image ?? '',
           },
