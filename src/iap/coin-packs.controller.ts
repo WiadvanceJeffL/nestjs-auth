@@ -257,8 +257,8 @@ export class CoinPacksController {
   }
 
   /**
-   * 更新金幣儲值包上下架狀態 (Admin Only)
-   * @description 管理員可透過此端點上下架指定的金幣商品
+   * 更新金幣儲值包 (Admin Only)
+   * @description 管理員可透過此端點更新指定的金幣商品；已售出商品僅能修改顯示與狀態欄位
    * @requires JWT Token + Admin 權限 (roleLevel >= 9)
    */
   @Patch('coin-packs/:id')
@@ -271,15 +271,15 @@ export class CoinPacksController {
     example: 1,
   })
   @ApiOperation({
-    summary: '上下架金幣商品 (管理員專用)',
-    description: '更新指定金幣商品的上下架狀態。需要 JWT Token 且用戶 roleLevel >= 9 (Admin)。',
+    summary: '更新金幣商品 (管理員專用)',
+    description: '更新指定金幣商品。已有交易紀錄的商品僅能修改 name、is_active 與 sort_order；product_id 不可修改。需要 JWT Token 且用戶 roleLevel >= 9 (Admin)。',
   })
   @ApiOkResponse({
-    description: '成功更新金幣商品上下架狀態',
+    description: '成功更新金幣商品',
     type: UpdateCoinPackAdminResponseDto,
   })
   @ApiBadRequestResponse({
-    description: '參數驗證失敗 (is_active 必須為 0 或 1)',
+    description: '參數驗證失敗或未提供任何可更新欄位',
     schema: {
       example: {
         statusCode: 400,
@@ -289,10 +289,10 @@ export class CoinPacksController {
     },
   })
   @ApiForbiddenResponse({
-    description: '權限不足 (需要 Admin 權限，roleLevel >= 9)',
+    description: '權限不足，或商品已有交易紀錄卻嘗試修改核心帳務欄位',
     schema: {
       example: {
-        message: '只有管理員可存取此資源',
+        message: '此商品已有交易紀錄，為確保財務對帳正確，無法修改價格、平台或金幣數量。請僅修改名稱/狀態，或建立新商品。',
         error: 'Forbidden',
         statusCode: 403,
       },
@@ -320,7 +320,7 @@ export class CoinPacksController {
       //   throw new ForbiddenException('只有管理員可存取此資源');
       // }
 
-      // 調用 Service 更新金幣商品上下架狀態
+      // 調用 Service 更新金幣商品，並由 Service 執行 Smart Lock 檢查。
       const coinPack = await this.coinPacksService.updateCoinPackAdmin(
         id,
         updateCoinPackAdminDto,

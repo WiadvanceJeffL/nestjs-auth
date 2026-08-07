@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, InternalServerErrorException, Logger, NotFoundException, HttpException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, InternalServerErrorException, Logger, NotFoundException, HttpException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CreateCoinPackRequestDto } from './dto/create-coin-pack-request.dto';
 import { UpdateCoinPackAdminRequestDto } from './dto/update-coin-pack-admin-request.dto';
@@ -8,6 +9,13 @@ import { GetAdminCoinPacksResponseDto } from './dto/get-admin-coin-packs-respons
 @Injectable()
 export class CoinPacksService {
   private readonly logger = new Logger(CoinPacksService.name);
+  private static readonly ACCOUNTING_FIELDS = [
+    'price',
+    'currency',
+    'amount',
+    'bonus_amount',
+    'platform',
+  ] as const;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -93,7 +101,7 @@ export class CoinPacksService {
    */
   async create(createCoinPackDto: CreateCoinPackRequestDto) {
     try {
-      // 檢查 platform + productId 的組合是否已存在
+      // SKU 在各平台內唯一；不同平台可使用相同的 productId。
       const existingPack = await this.prisma.coinPack.findUnique({
         where: {
           platform_productId: {
@@ -155,37 +163,53 @@ export class CoinPacksService {
   }
 
   /**
-   * 更新金幣儲值包上下架狀態 (Admin Only)
+   * 更新金幣儲值包 (Admin Only)
    * @param id 金幣儲值包 ID
-   * @param updateCoinPackAdminDto 只包含 is_active 欄位的DTO
+   * @param updateCoinPackAdminDto 可更新的顯示、狀態與帳務欄位；SKU 不可更新
    * @returns 更新後的金幣儲值包
    * @throws NotFoundException - 當指定 ID 的金幣儲值包不存在
    * @throws InternalServerErrorException - 資料庫操作失敗
    */
   async updateCoinPackAdmin(id: number, updateCoinPackAdminDto: UpdateCoinPackAdminRequestDto) {
     try {
-      // 1. 檢查金幣儲值包是否存在
-      const existingPack = await this.prisma.coinPack.findUnique({
-        where: { id },
-      });
-
-      if (!existingPack) {
-        this.logger.warn(`Attempt to update non-existent coin pack: id=${id}`);
-        throw new NotFoundException(`金幣儲值包不存在 (ID: ${id})`);
+      const data = this.buildUpdateData(updateCoinPackAdminDto);
+      if (Object.keys(data).length === 0) {
+        throw new BadRequestException('請至少提供一個可更新欄位');
       }
 
-      // 2. 只更新 isActive 欄位
-      // 將 is_active (0|1) 轉換為 isActive (boolean)
-      // 0 表示下架 (false), 1 表示上架 (true)
-      const updatedPack = await this.prisma.coinPack.update({
-        where: { id },
-        data: {
-          isActive: updateCoinPackAdminDto.is_active === 0 ? false : true,
-        },
+      const updatesAccountingField = CoinPacksService.ACCOUNTING_FIELDS.some((field) =>
+        Object.prototype.hasOwnProperty.call(updateCoinPackAdminDto, field),
+      );
+
+      const updatedPack = await this.prisma.$transaction(async (tx) => {
+        const existingPack = await tx.coinPack.findUnique({ where: { id } });
+
+        if (!existingPack) {
+          this.logger.warn(`Attempt to update non-existent coin pack: id=${id}`);
+          throw new NotFoundException(`金幣儲值包不存在 (ID: ${id})`);
+        }
+
+        if (updatesAccountingField) {
+          const receipt = await tx.iapReceipt.findFirst({
+            where: {
+              platform: existingPack.platform,
+              productId: existingPack.productId,
+            },
+            select: { id: true },
+          });
+
+          if (receipt) {
+            throw new ForbiddenException(
+              '此商品已有交易紀錄，為確保財務對帳正確，無法修改價格、平台或金幣數量。請僅修改名稱/狀態，或建立新商品。',
+            );
+          }
+        }
+
+        return tx.coinPack.update({ where: { id }, data });
       });
 
       this.logger.log(
-        `Successfully updated coin pack status: id=${updatedPack.id}, isActive=${updatedPack.isActive}`,
+        `Successfully updated coin pack: id=${updatedPack.id}`,
       );
 
       return updatedPack;
@@ -195,10 +219,28 @@ export class CoinPacksService {
         throw error;
       }
 
+      const prismaError = error as Record<string, unknown>;
+      if (prismaError.code === 'P2002') {
+        throw new BadRequestException('此 platform 與 productId 的組合已存在');
+      }
+
       // 其他未預期的錯誤
       const errorMessage = error instanceof Error ? error.message : '未知錯誤';
-      this.logger.error(`Failed to update coin pack status: ${errorMessage}`, error instanceof Error ? error.stack : '');
-      throw new InternalServerErrorException('更新金幣儲值包上下架狀態失敗，請稍後重試');
+      this.logger.error(`Failed to update coin pack: ${errorMessage}`, error instanceof Error ? error.stack : '');
+      throw new InternalServerErrorException('更新金幣儲值包失敗，請稍後重試');
     }
+  }
+
+  private buildUpdateData(dto: UpdateCoinPackAdminRequestDto): Prisma.CoinPackUpdateInput {
+    return {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.is_active !== undefined && { isActive: dto.is_active === 1 }),
+      ...(dto.sort_order !== undefined && { sortOrder: dto.sort_order }),
+      ...(dto.price !== undefined && { price: dto.price }),
+      ...(dto.currency !== undefined && { currency: dto.currency }),
+      ...(dto.amount !== undefined && { amount: dto.amount }),
+      ...(dto.bonus_amount !== undefined && { bonusAmount: dto.bonus_amount }),
+      ...(dto.platform !== undefined && { platform: dto.platform }),
+    };
   }
 }
