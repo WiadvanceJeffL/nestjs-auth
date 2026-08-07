@@ -37,7 +37,7 @@ export class CreateCoinPackRequestDto {
    * @example test_item_001
    */
   @ApiProperty({
-    description: '商品 ID (SKU)，用於區分不同商品',
+    description: '商品 ID (SKU)，同一平台內不可重複；不同平台可使用相同 SKU',
     example: 'test_item_001',
   })
   @IsNotEmpty({ message: '商品 ID 不能為空' })

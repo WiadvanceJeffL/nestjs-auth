@@ -7,7 +7,8 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { GrantRewardRequestDto } from './dto/grant-reward-request.dto';
 import { GrantRewardResponseDto } from './dto/grant-reward-response.dto';
 import { UpdateCoinLedgerRemarkDto } from './dto/update-coin-ledger-remark.dto';
-import { UpdateCoinPackNameDto } from './dto/update-coin-pack-name.dto';
+import { UpdateCoinPackAdminRequestDto } from '../iap/dto/update-coin-pack-admin-request.dto';
+import { CoinPacksService } from '../iap/coin-packs.service';
 import { RemoveUserEntitlementResponseDto } from './dto/remove-user-entitlement-response.dto';
 import {
   IapReceiptStatus,
@@ -22,7 +23,10 @@ import {
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly coinPacksService: CoinPacksService,
+  ) {}
 
   @Post('rewards/grant')
   @UseGuards(JwtAuthGuard, AdminGuard) // ✅ 先 JWT 認證，再 Admin 授權
@@ -361,17 +365,17 @@ export class AdminController {
   @UseGuards(JwtAuthGuard, AdminGuard) // ✅ 先 JWT 認證，再 Admin 授權
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '【管理員專用】修改金幣方案名稱',
+    summary: '【管理員專用】更新金幣方案',
     description: `
-      管理員可透過此 API 修改指定金幣方案的名稱。
+      管理員可透過此 API 部分更新指定金幣方案。
       
       **核心特性**：
       - 需要 roleLevel >= 9 的管理員權限
       - 支援部分更新（PATCH）
       - 檢查方案是否存在，不存在返回 404 錯誤
-      - 檢查新名稱是否已被其他方案使用，防止重複（409 Conflict）
-      
-      **用途**：修改金幣方案的顯示名稱、更新方案描述等
+      - 名稱、上下架狀態與排序可隨時修改
+      - 商品已有交易紀錄時，不可修改價格、幣別、金幣數量、贈送金幣或平台
+      - product_id（SKU）不開放修改
     `,
   })
   @ApiParam({
@@ -381,31 +385,31 @@ export class AdminController {
     example: 1,
   })
   @ApiBody({
-    type: UpdateCoinPackNameDto,
+    type: UpdateCoinPackAdminRequestDto,
     examples: {
-      example1: {
-        summary: '修改為簡單名稱',
+      displayFields: {
+        summary: '商品已售出後仍可修改的顯示欄位',
         value: {
           name: '基礎套餐',
+          is_active: 1,
+          sort_order: 10,
         },
       },
-      example2: {
-        summary: '修改為詳細名稱',
+      accountingFields: {
+        summary: '尚無交易紀錄時可修改帳務欄位',
         value: {
-          name: 'Premium Pack - 1000 Coins + 100 Bonus',
-        },
-      },
-      example3: {
-        summary: '修改為推廣套餐名稱',
-        value: {
-          name: '限時優惠 - 購買即送雙倍金幣',
+          price: 90,
+          currency: 'TWD',
+          amount: 100,
+          bonus_amount: 10,
+          platform: 'GOOGLE',
         },
       },
     },
   })
   @ApiResponse({
     status: 200,
-    description: '金幣方案名稱修改成功',
+    description: '金幣方案更新成功',
     example: {
       success: true,
       id: 1,
@@ -424,7 +428,7 @@ export class AdminController {
   })
   @ApiResponse({
     status: 400,
-    description: '請求參數驗證失敗（name 為空或長度超過 100 字元）',
+    description: '請求參數驗證失敗',
     example: {
       statusCode: 400,
       message: ['name 不能為空', 'name 最多 100 個字元'],
@@ -442,10 +446,10 @@ export class AdminController {
   })
   @ApiResponse({
     status: 403,
-    description: '權限不足（非管理員，roleLevel < 9）',
+    description: '權限不足，或商品已有交易紀錄卻嘗試修改核心帳務欄位',
     example: {
       statusCode: 403,
-      message: '只有管理員可存取此資源',
+      message: '此商品已有交易紀錄，為確保財務對帳正確，無法修改價格、平台或金幣數量。請僅修改名稱/狀態，或建立新商品。',
       error: 'Forbidden',
     },
   })
@@ -459,33 +463,40 @@ export class AdminController {
     },
   })
   @ApiResponse({
-    status: 409,
-    description: '金幣方案名稱已被其他方案使用',
-    example: {
-      statusCode: 409,
-      message: '金幣方案名稱「Premium Pack」已被其他方案使用，請使用不同的名稱',
-      error: 'Conflict',
-    },
-  })
-  @ApiResponse({
     status: 500,
     description: '伺服器內部錯誤',
     example: {
       statusCode: 500,
-      message: '金幣方案名稱更新失敗: [錯誤詳情]',
+      message: '金幣方案更新失敗: [錯誤詳情]',
       error: 'Internal Server Error',
     },
   })
-  async updateCoinPackName(
+  async updateCoinPack(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: UpdateCoinPackNameDto,
+    @Body() body: UpdateCoinPackAdminRequestDto,
     @CurrentUser() user: any,
   ) {
     this.logger.log(
-      `[UpdateCoinPackName] 管理員 ${user.userId} 發起修改金幣方案名稱操作 | coinPackId=${id}, newName=${body.name}`,
+      `[UpdateCoinPack] 管理員 ${user.userId} 發起更新金幣方案操作 | coinPackId=${id}`,
     );
 
-    return this.adminService.updateCoinPackName(id, body, user.userId);
+    const coinPack = await this.coinPacksService.updateCoinPackAdmin(id, body);
+
+    return {
+      success: true,
+      id: coinPack.id,
+      platform: coinPack.platform,
+      productId: coinPack.productId,
+      name: coinPack.name,
+      amount: coinPack.amount,
+      bonusAmount: coinPack.bonusAmount,
+      price: coinPack.price,
+      currency: coinPack.currency,
+      isActive: coinPack.isActive,
+      sortOrder: coinPack.sortOrder,
+      createdAt: coinPack.createdAt,
+      updatedAt: coinPack.updatedAt,
+    };
   }
 
   @Delete('users/:userId/entitlements/:bookId')

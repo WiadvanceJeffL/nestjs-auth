@@ -12,5 +12,6 @@ import { UsersModule } from '../users/users.module'; // 導入 UsersModule
     imports: [UsersModule], // 導入 UsersModule
     controllers: [CoinPacksController, IapController, IapQueryController], // 將 IapController 添加到 controllers 陣列
     providers: [CoinPacksService, IapService, IapQueryService, PrismaService], // 將 IapService 添加到 providers 陣列
+    exports: [CoinPacksService],
 })
 export class IapModule {}

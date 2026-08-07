@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { GrantRewardRequestDto } from './dto/grant-reward-request.dto';
 import { GrantRewardResponseDto } from './dto/grant-reward-response.dto';
@@ -242,7 +242,6 @@ export class AdminService {
    * @param adminId 執行此操作的管理員 ID（用於審計日誌）
    * @returns 更新後的金幣方案資訊
    * @throws NotFoundException 如果指定的 CoinPack 不存在
-   * @throws ConflictException 如果新名稱已被其他方案使用（可選）
    */
   async updateCoinPackName(
     coinPackId: number,
@@ -263,23 +262,8 @@ export class AdminService {
       throw new NotFoundException(`金幣方案 (ID: ${coinPackId}) 不存在`);
     }
 
-    // ✅ Step 2: 檢查新名稱是否已被其他方案使用（可選的唯一性檢查）
-    // 如果系統規定方案名稱不能重複，可啟用此檢查
-    const duplicateName = await this.prisma.coinPack.findFirst({
-      where: {
-        name: name,
-        id: { not: coinPackId }, // 排除當前方案本身
-      },
-    });
-
-    if (duplicateName) {
-      this.logger.warn(
-        `[UpdateCoinPackName] 金幣方案名稱已存在: name=${name}, admin=${adminId}`,
-      );
-      throw new ConflictException(`金幣方案名稱「${name}」已被其他方案使用，請使用不同的名稱`);
-    }
-
-    // ✅ Step 3: 更新名稱欄位
+    // 商品名稱是顯示用途，允許與其他方案重複。
+    // ✅ Step 2: 更新名稱欄位
     try {
       const updatedCoinPack = await this.prisma.coinPack.update({
         where: { id: coinPackId },
